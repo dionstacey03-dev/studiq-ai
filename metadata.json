@@ -1,0 +1,6 @@
+{
+  "name": "StudyLens AI",
+  "description": "Learn Smarter. Understand Better. AI-powered academic study workspace with interactive topic explanations, notes summarization, adaptive quizzes, flashcards, study planning, and progress analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
