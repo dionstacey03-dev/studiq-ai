@@ -28,6 +28,44 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '15mb' }));
 
+  // Protect paid AI-provider routes from accidental or abusive request bursts.
+  // This in-memory limiter is per server process; use a shared store for
+  // consistent limits when deploying multiple instances.
+  const AI_RATE_WINDOW_MS = 15 * 60 * 1000;
+  const AI_RATE_MAX_REQUESTS = 20;
+  const aiRequestCounts = new Map<string, { count: number; resetAt: number }>();
+
+  app.use('/api/ai', (req: Request, res: Response, next) => {
+    const now = Date.now();
+    const clientKey = req.ip || req.socket.remoteAddress || 'unknown';
+    let entry = aiRequestCounts.get(clientKey);
+
+    if (!entry || now >= entry.resetAt) {
+      entry = { count: 0, resetAt: now + AI_RATE_WINDOW_MS };
+      aiRequestCounts.set(clientKey, entry);
+    }
+
+    entry.count += 1;
+    res.setHeader('RateLimit-Limit', AI_RATE_MAX_REQUESTS);
+    res.setHeader('RateLimit-Remaining', Math.max(0, AI_RATE_MAX_REQUESTS - entry.count));
+    res.setHeader('RateLimit-Reset', Math.ceil(entry.resetAt / 1000));
+
+    if (entry.count > AI_RATE_MAX_REQUESTS) {
+      res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000));
+      return res.status(429).json({
+        error: 'Too many AI requests. Please wait before trying again.',
+      });
+    }
+
+    if (aiRequestCounts.size > 1000) {
+      for (const [key, value] of aiRequestCounts) {
+        if (now >= value.resetAt) aiRequestCounts.delete(key);
+      }
+    }
+
+    next();
+  });
+
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', app: 'STUDIQ AI', model: MODEL_NAME });
   });
